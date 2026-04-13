@@ -42,6 +42,7 @@
     "@radix-ui/react-toggle": "^1.1.9",
     "@radix-ui/react-toggle-group": "^1.1.10",
     "@radix-ui/react-tooltip": "^1.2.7",
+    "@supabase/supabase-js": "^2.103.0",
     "@tanstack/react-query": "^5.83.0",
     "acorn": "^8.16.0",
     "acorn-walk": "^8.3.5",
