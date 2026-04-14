@@ -1,16 +1,16 @@
 import { Language } from '@/types/visualizer';
-import { Code2, Coffee, Cpu, FileCode2 } from 'lucide-react';
 
 interface LanguageSidebarProps {
   language: Language;
   onLanguageChange: (lang: Language) => void;
 }
 
-const languages: { id: Language; label: string; icon: React.ReactNode }[] = [
-  { id: 'javascript', label: 'JS', icon: <FileCode2 className="w-5 h-5" /> },
-  { id: 'python', label: 'PY', icon: <Code2 className="w-5 h-5" /> },
-  { id: 'java', label: 'JV', icon: <Coffee className="w-5 h-5" /> },
-  { id: 'cpp', label: 'C++', icon: <Cpu className="w-5 h-5" /> },
+const languages: { id: Language; label: string; emoji: string }[] = [
+  { id: 'javascript', label: 'JS', emoji: '🌐' },
+  { id: 'python', label: 'PY', emoji: '🐍' },
+  { id: 'java', label: 'JV', emoji: '☕' },
+  { id: 'cpp', label: 'C++', emoji: '💻' },
+  { id: 'c', label: 'C', emoji: '⚙️' },
 ];
 
 export function LanguageSidebar({ language, onLanguageChange }: LanguageSidebarProps) {
@@ -27,7 +27,7 @@ export function LanguageSidebar({ language, onLanguageChange }: LanguageSidebarP
           }`}
           title={lang.id}
         >
-          {lang.icon}
+          <span className="text-base leading-none">{lang.emoji}</span>
           <span className="mt-0.5 text-[10px]">{lang.label}</span>
         </button>
       ))}

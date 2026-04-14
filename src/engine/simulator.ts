@@ -1,10 +1,5 @@
 import { ExecutionStep, Language } from '@/types/visualizer';
 
-/**
- * Simple pattern-based simulator for Python/Java/C++
- * Parses common patterns and generates step traces
- */
-
 const MAX_STEPS = 500;
 
 interface SimScope {
@@ -12,11 +7,18 @@ interface SimScope {
   arrays: Record<string, any[]>;
 }
 
+interface LoopInfo {
+  label: string;
+  varName: string;
+  start: number;
+  end: number;
+  current: number;
+}
+
 function parseLine(line: string, scope: SimScope, outputs: string[]): { changed: string[]; conditionResult?: boolean } {
   const trimmed = line.trim();
   const changed: string[] = [];
 
-  // Skip empty lines, comments, includes, using
   if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#') ||
       trimmed.startsWith('import') || trimmed.startsWith('using') ||
       trimmed.startsWith('#include') || trimmed.startsWith('public class') ||
@@ -31,6 +33,22 @@ function parseLine(line: string, scope: SimScope, outputs: string[]): { changed:
   if (printMatch) {
     const arg = evaluateExpr(printMatch[1], scope);
     outputs.push(String(arg));
+    return { changed };
+  }
+
+  // printf
+  const printfMatch = trimmed.match(/^printf\s*\((.+)\)\s*;?$/);
+  if (printfMatch) {
+    const args = printfMatch[1].split(',').map(a => a.trim());
+    if (args.length >= 1) {
+      let fmt = args[0].replace(/"/g, '');
+      for (let k = 1; k < args.length; k++) {
+        const val = evaluateExpr(args[k], scope);
+        fmt = fmt.replace(/%[difs]/, String(val));
+      }
+      fmt = fmt.replace(/\\n/g, '');
+      outputs.push(fmt);
+    }
     return { changed };
   }
 
@@ -54,8 +72,8 @@ function parseLine(line: string, scope: SimScope, outputs: string[]): { changed:
     return { changed };
   }
 
-  // Variable assignment: x = 5, int x = 5, let x = 5
-  const assignMatch = trimmed.match(/^(?:int|float|double|string|let|const|var|auto)?\s*(\w+)\s*=\s*(.+?)(?:;)?$/);
+  // Variable assignment
+  const assignMatch = trimmed.match(/^(?:int|float|double|string|char|long|let|const|var|auto)?\s*(\w+)\s*=\s*(.+?)(?:;)?$/);
   if (assignMatch) {
     const [, name, expr] = assignMatch;
     const val = evaluateExpr(expr, scope);
@@ -68,7 +86,7 @@ function parseLine(line: string, scope: SimScope, outputs: string[]): { changed:
     return { changed };
   }
 
-  // Array element assignment: arr[i] = val
+  // Array element assignment
   const arrAssign = trimmed.match(/^(\w+)\[(.+?)\]\s*=\s*(.+?)(?:;)?$/);
   if (arrAssign) {
     const [, name, idxExpr, valExpr] = arrAssign;
@@ -81,7 +99,7 @@ function parseLine(line: string, scope: SimScope, outputs: string[]): { changed:
     return { changed };
   }
 
-  // Python swap: arr[j], arr[j + 1] = arr[j + 1], arr[j]
+  // Python swap
   const swapMatch = trimmed.match(/^(\w+)\[(.+?)\]\s*,\s*(\w+)\[(.+?)\]\s*=\s*(\w+)\[(.+?)\]\s*,\s*(\w+)\[(.+?)\]$/);
   if (swapMatch) {
     const arr1 = swapMatch[1];
@@ -96,7 +114,7 @@ function parseLine(line: string, scope: SimScope, outputs: string[]): { changed:
     return { changed };
   }
 
-  // Increment: i++, i--
+  // Increment
   const incMatch = trimmed.match(/^(\w+)(\+\+|--)(?:;)?$/);
   if (incMatch) {
     const [, name, op] = incMatch;
@@ -113,26 +131,21 @@ function parseLine(line: string, scope: SimScope, outputs: string[]): { changed:
 function evaluateExpr(expr: string, scope: SimScope): any {
   const trimmed = expr.trim();
 
-  // String literal
   if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
       (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
     return trimmed.slice(1, -1);
   }
 
-  // Number
   if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
 
-  // Boolean
   if (trimmed === 'true' || trimmed === 'True') return true;
   if (trimmed === 'false' || trimmed === 'False') return false;
 
-  // Array literal [1, 2, 3] or {1, 2, 3}
   const arrMatch = trimmed.match(/^[\[{](.+?)[\]}]$/);
   if (arrMatch) {
     return arrMatch[1].split(',').map(v => evaluateExpr(v.trim(), scope));
   }
 
-  // len(x) / .length
   const lenMatch = trimmed.match(/^len\((\w+)\)$/);
   if (lenMatch) {
     const arr = scope.arrays[lenMatch[1]];
@@ -144,11 +157,9 @@ function evaluateExpr(expr: string, scope: SimScope): any {
     return arr ? arr.length : 0;
   }
 
-  // range(n) - return n
   const rangeMatch = trimmed.match(/^range\((.+)\)$/);
   if (rangeMatch) return evaluateExpr(rangeMatch[1], scope);
 
-  // Array access: arr[i]
   const accMatch = trimmed.match(/^(\w+)\[(.+?)\]$/);
   if (accMatch) {
     const arr = scope.arrays[accMatch[1]];
@@ -156,14 +167,12 @@ function evaluateExpr(expr: string, scope: SimScope): any {
     return arr ? arr[idx] : undefined;
   }
 
-  // Variable
   if (/^\w+$/.test(trimmed)) {
     if (trimmed in scope.variables) return scope.variables[trimmed];
     if (trimmed in scope.arrays) return scope.arrays[trimmed];
     return trimmed;
   }
 
-  // Binary operations
   for (const op of ['>=', '<=', '!=', '==', '>', '<', '+', '-', '*', '/', '%']) {
     const idx = findOperator(trimmed, op);
     if (idx !== -1) {
@@ -200,24 +209,34 @@ function findOperator(expr: string, op: string): number {
   return -1;
 }
 
+function buildLoopIterations(varName: string, start: number, end: number, current: number) {
+  const iterations: { value: string; status: 'done' | 'active' | 'pending' }[] = [];
+  const maxShow = Math.min(end - start, 20);
+  for (let k = start; k < start + maxShow; k++) {
+    iterations.push({
+      value: `${varName}=${k}`,
+      status: k < current ? 'done' : k === current ? 'active' : 'pending',
+    });
+  }
+  return iterations;
+}
+
 export function simulateCode(code: string, language: Language): ExecutionStep[] {
   const lines = code.split('\n');
   const steps: ExecutionStep[] = [];
   const outputs: string[] = [];
   const scope: SimScope = { variables: {}, arrays: {} };
   const callStack = [{ name: 'main', params: {} }];
+  const activeLoops: LoopInfo[] = [];
 
-  // Simple line-by-line execution with basic loop detection
   let i = 0;
   let totalSteps = 0;
-  const loopStack: { start: number; end: number; count: number }[] = [];
 
   while (i < lines.length && totalSteps < MAX_STEPS) {
     const line = lines[i];
     const trimmed = line.trim();
     totalSteps++;
 
-    // Skip empty/comment lines
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#') ||
         trimmed.startsWith('/*') || trimmed.startsWith('*')) {
       i++;
@@ -244,7 +263,6 @@ export function simulateCode(code: string, language: Language): ExecutionStep[] 
       let bodyEnd = i + 1;
       let depth = 0;
       if (trimmed.endsWith(':')) {
-        // Python: find indented block
         const baseIndent = line.search(/\S/);
         for (let j = i + 1; j < lines.length; j++) {
           if (lines[j].trim() === '') continue;
@@ -253,7 +271,6 @@ export function simulateCode(code: string, language: Language): ExecutionStep[] 
           bodyEnd = j + 1;
         }
       } else {
-        // C-style: find matching brace
         for (let j = i; j < lines.length; j++) {
           for (const ch of lines[j]) {
             if (ch === '{') depth++;
@@ -263,35 +280,54 @@ export function simulateCode(code: string, language: Language): ExecutionStep[] 
         }
       }
 
-      // Execute loop iterations
+      const loopLabel = `${varName}: ${start}→${end - 1}`;
+      const loopInfo: LoopInfo = { label: loopLabel, varName, start, end, current: start };
+      activeLoops.push(loopInfo);
+
       for (let iter = start; iter < end && totalSteps < MAX_STEPS; iter++) {
         scope.variables[varName] = iter;
-        addSimStep(i + 1, trimmed, scope, outputs, steps, callStack, [varName]);
+        loopInfo.current = iter;
 
-        // Execute body lines
+        const loopState = activeLoops.map(l => ({
+          label: l.label,
+          iterations: buildLoopIterations(l.varName, l.start, l.end, l.current),
+        }));
+
+        addSimStep(i + 1, trimmed, scope, outputs, steps, callStack, [varName], loopState);
+
         for (let j = i + 1; j < bodyEnd && totalSteps < MAX_STEPS; j++) {
           const bodyLine = lines[j].trim();
           if (!bodyLine || bodyLine === '{' || bodyLine === '}') continue;
 
-          // Check for nested for loop
+          // Detect nested for
           const nestedFor = bodyLine.match(/^for\s/);
           if (nestedFor) {
-            // Skip nested loops for simplicity - just execute body lines
+            // For now skip nested — handled in outer parse
           }
 
           const { changed } = parseLine(bodyLine, scope, outputs);
           totalSteps++;
-          addSimStep(j + 1, bodyLine, scope, outputs, steps, callStack, changed);
+          const nestedLoopState = activeLoops.map(l => ({
+            label: l.label,
+            iterations: buildLoopIterations(l.varName, l.start, l.end, l.current),
+          }));
+          addSimStep(j + 1, bodyLine, scope, outputs, steps, callStack, changed, nestedLoopState);
         }
       }
+
+      activeLoops.pop();
       i = bodyEnd;
       continue;
     }
 
     // Regular line
     const { changed } = parseLine(trimmed, scope, outputs);
-    if (changed.length > 0 || trimmed.startsWith('print') || trimmed.startsWith('cout') || trimmed.startsWith('System.out')) {
-      addSimStep(i + 1, trimmed, scope, outputs, steps, callStack, changed);
+    if (changed.length > 0 || trimmed.startsWith('print') || trimmed.startsWith('printf') || trimmed.startsWith('cout') || trimmed.startsWith('System.out')) {
+      const loopState = activeLoops.map(l => ({
+        label: l.label,
+        iterations: buildLoopIterations(l.varName, l.start, l.end, l.current),
+      }));
+      addSimStep(i + 1, trimmed, scope, outputs, steps, callStack, changed, loopState);
     }
     i++;
   }
@@ -303,16 +339,16 @@ function addSimStep(
   lineNum: number, lineCode: string, scope: SimScope,
   outputs: string[], steps: ExecutionStep[],
   callStack: { name: string; params: Record<string, any> }[],
-  changed: string[]
+  changed: string[],
+  loops: { label: string; iterations: { value: string; status: 'done' | 'active' | 'pending' }[] }[] = []
 ) {
-  // Detect swap
   let swapAnimation: [number, number] | null = null;
   const prev = steps[steps.length - 1];
   if (prev) {
     for (const [arrName, currArr] of Object.entries(scope.arrays)) {
       const prevArr = prev.memory.arrays[arrName];
       if (!prevArr || prevArr.length !== currArr.length) continue;
-      const diffs = [];
+      const diffs: number[] = [];
       for (let k = 0; k < currArr.length; k++) {
         if (currArr[k] !== prevArr[k]) diffs.push(k);
       }
@@ -325,6 +361,18 @@ function addSimStep(
     }
   }
 
+  // Detect compare indices from line code
+  let compareIndices: [number, number] | null = null;
+  const cmpMatch = lineCode.match(/(\w+)\[(\w+)\]\s*[><=!]+\s*\1\[(.+?)\]/);
+  if (cmpMatch) {
+    const idx1 = typeof scope.variables[cmpMatch[2]] === 'number' ? scope.variables[cmpMatch[2]] : Number(evaluateExpr(cmpMatch[2], scope));
+    const idx2Expr = cmpMatch[3];
+    const idx2 = typeof scope.variables[idx2Expr] === 'number' ? scope.variables[idx2Expr] : Number(evaluateExpr(idx2Expr, scope));
+    if (!isNaN(idx1) && !isNaN(idx2)) {
+      compareIndices = [idx1, idx2];
+    }
+  }
+
   steps.push({
     step: steps.length + 1,
     lineNumber: lineNum,
@@ -334,11 +382,11 @@ function addSimStep(
       arrays: Object.fromEntries(Object.entries(scope.arrays).map(([k, v]) => [k, [...v]])),
     },
     callStack: callStack.map(f => ({ ...f })),
-    loops: [],
+    loops,
     changedVariables: changed,
     conditionResult: null,
     swapAnimation,
-    compareIndices: null,
+    compareIndices,
     doneIndices: [],
     returnValue: null,
     output: [...outputs],

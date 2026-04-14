@@ -9,6 +9,7 @@ export function executeCode(code: string, language: Language): ExecutionStep[] {
     if (language === 'javascript') {
       return executeJavaScript(code);
     }
+    // C, C++, Java, Python all use the simulator
     return simulateCode(code, language);
   } catch (e: any) {
     return [{
