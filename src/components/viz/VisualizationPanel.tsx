@@ -2,6 +2,7 @@ import { ExecutionStep } from '@/types/visualizer';
 import { VariableBox } from './VariableBox';
 import { ArraySection } from './ArraySection';
 import { CallStack } from './CallStack';
+import { LoopTracker } from './LoopTracker';
 import { CheckCircle, XCircle, CornerDownLeft, Terminal } from 'lucide-react';
 
 interface VisualizationPanelProps {
@@ -32,6 +33,7 @@ export function VisualizationPanel({ step }: VisualizationPanelProps) {
   const hasVars = Object.keys(step.memory.variables).length > 0;
   const hasArrays = Object.keys(step.memory.arrays).length > 0;
   const hasStack = step.callStack.length > 1;
+  const hasLoops = step.loops.length > 0;
 
   return (
     <div className="p-4 space-y-5 overflow-y-auto h-full animate-fade-in">
@@ -82,6 +84,14 @@ export function VisualizationPanel({ step }: VisualizationPanelProps) {
             swapAnimation={step.swapAnimation}
             doneIndices={step.doneIndices}
           />
+        </div>
+      )}
+
+      {/* Loop Tracker */}
+      {hasLoops && (
+        <div>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Loop Progress</h3>
+          <LoopTracker loops={step.loops} />
         </div>
       )}
 
