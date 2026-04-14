@@ -7,12 +7,12 @@ const corsHeaders = {
 
 const JUDGE0_URL = "https://ce.judge0.com";
 
-// Judge0 CE language IDs
 const LANG_IDS: Record<string, number> = {
-  python: 71,      // Python 3
-  java: 62,        // Java (OpenJDK 13)
-  cpp: 54,         // C++ (GCC 9.2.0)
-  javascript: 63,  // JavaScript (Node.js 12)
+  python: 71,
+  java: 62,
+  cpp: 54,
+  c: 50,          // C (GCC 9.2.0)
+  javascript: 63,
 };
 
 serve(async (req) => {
@@ -21,7 +21,7 @@ serve(async (req) => {
   }
 
   try {
-    const { code, language } = await req.json();
+    const { code, language, stdin } = await req.json();
 
     if (!code || !language) {
       return new Response(JSON.stringify({ error: "Missing code or language" }), {
@@ -38,13 +38,13 @@ serve(async (req) => {
       });
     }
 
-    // Submit code to Judge0
     const submitRes = await fetch(`${JUDGE0_URL}/submissions?base64_encoded=false&wait=true`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         source_code: code,
         language_id: langId,
+        stdin: stdin || "",
         cpu_time_limit: 5,
         wall_time_limit: 10,
       }),
@@ -53,8 +53,7 @@ serve(async (req) => {
     if (!submitRes.ok) {
       const text = await submitRes.text();
       console.error("Judge0 error:", submitRes.status, text);
-      
-      // Fallback: for JavaScript, we can still run it safely
+
       if (language === 'javascript') {
         return new Response(JSON.stringify({
           output: "",
@@ -63,7 +62,7 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      
+
       return new Response(JSON.stringify({ error: "Code execution service unavailable. Please try again later." }), {
         status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -71,12 +70,9 @@ serve(async (req) => {
     }
 
     const result = await submitRes.json();
-
-    // Status IDs: 3 = Accepted, 6 = Compilation Error, 11+ = Runtime errors
     const statusId = result.status?.id;
-    
+
     if (statusId === 6) {
-      // Compilation error
       return new Response(JSON.stringify({
         output: "",
         error: result.compile_output || "Compilation failed",
@@ -86,7 +82,6 @@ serve(async (req) => {
     }
 
     if (statusId !== 3) {
-      // Runtime error or other
       return new Response(JSON.stringify({
         output: result.stdout || "",
         error: result.stderr || result.status?.description || "Execution error",
